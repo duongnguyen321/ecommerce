@@ -1,0 +1,750 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_PRISMA_URL")
+}
+
+model activity_logs {
+  id          String    @id @default(uuid())
+  actor_id    String?
+  actor_type  ActorType
+  action      String    @db.VarChar(100)
+  entity      String    @db.VarChar(100)
+  entity_id   String    @db.VarChar(255)
+  change_data Json?
+  notes       String?
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+}
+
+model attribute_values {
+  id                       String                     @id @default(uuid())
+  attribute_id             String
+  value                    String                     @db.VarChar(100)
+  attributes               attributes                 @relation(fields: [attribute_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  variant_attribute_values variant_attribute_values[]
+
+  @@unique([attribute_id, value], map: "attribute_values_attribute_id_value_idx")
+}
+
+model attributes {
+  id               String             @id @default(uuid())
+  attribute_name   String             @unique @db.VarChar(100)
+  attribute_values attribute_values[]
+}
+
+model cart_items {
+  id               String           @id @default(uuid())
+  user_id          String
+  variant_id       String
+  quantity         Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamp(6)
+  updated_at       DateTime         @default(now()) @db.Timestamp(6)
+  users            users            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, variant_id], map: "cart_items_user_id_variant_id_idx")
+}
+
+model companies {
+  id              String          @id @default(uuid())
+  company_name    String          @db.VarChar(255)
+  tax_code        String?         @unique @db.VarChar(50)
+  billing_address String?
+  company_email   String?         @db.VarChar(255)
+  company_phone   String?         @db.VarChar(20)
+  notes           String?
+  user_profiles   user_profiles[]
+}
+
+model customer_group_members {
+  customer_group_id String
+  user_id           String
+  customer_groups   customer_groups @relation(fields: [customer_group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users             users           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([customer_group_id, user_id])
+}
+
+model customer_groups {
+  id                     String                   @id @default(uuid())
+  group_name             String                   @unique @db.VarChar(255)
+  description            String?
+  customer_group_members customer_group_members[]
+}
+
+model daily_sales_reports {
+  report_date         DateTime @db.Date
+  store_id            String
+  total_revenue       Decimal  @db.Decimal(18, 2)
+  order_count         Int
+  products_sold_count Int
+  new_customer_count  Int
+  stores              stores   @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([report_date, store_id])
+}
+
+model email_history {
+  id              String      @id @default(uuid())
+  recipient_email String      @db.VarChar(255)
+  subject         String      @db.VarChar(255)
+  body_html       String
+  email_type      EmailType
+  status          EmailStatus @default(queued)
+  error_message   String?
+  sent_at         DateTime?   @db.Timestamp(6)
+  opened_at       DateTime?   @db.Timestamp(6)
+  created_at      DateTime    @default(now()) @db.Timestamp(6)
+}
+
+model employee_roles {
+  employee_id String
+  role_id     String
+  employees   employees @relation(fields: [employee_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roles       roles     @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([employee_id, role_id])
+}
+
+model employees {
+  id              String            @id @default(uuid())
+  full_name       String            @db.VarChar(255)
+  email           String            @unique @db.VarChar(255)
+  password_hash   String            @db.VarChar(255)
+  phone_number    String?           @db.VarChar(20)
+  avatar_url      String?           @db.VarChar(255)
+  store_id        String?
+  status          EmployeeStatus    @default(active)
+  is_super_admin  Boolean           @default(false)
+  created_at      DateTime          @default(now()) @db.Timestamp(6)
+  updated_at      DateTime          @default(now()) @db.Timestamp(6)
+  employee_roles  employee_roles[]
+  stores          stores?           @relation(fields: [store_id], references: [id], onUpdate: NoAction)
+  goods_receipts  goods_receipts[]
+  orders          orders[]
+  posts           posts[]
+  return_requests return_requests[]
+  support_tickets support_tickets[]
+}
+
+model goods_receipt_items {
+  id               String           @id @default(uuid())
+  goods_receipt_id String
+  variant_id       String
+  quantity         Int
+  unit_cost        Decimal          @db.Decimal(15, 2)
+  subtotal         Decimal          @db.Decimal(15, 2)
+  goods_receipts   goods_receipts   @relation(fields: [goods_receipt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model goods_receipts {
+  id                     String                @id @default(uuid())
+  code                   String                @unique @db.VarChar(50)
+  supplier_id            String
+  created_by_employee_id String
+  store_id               String
+  total_amount           Decimal               @db.Decimal(15, 2)
+  receipt_date           DateTime              @default(now()) @db.Timestamp(6)
+  notes                  String?
+  goods_receipt_items    goods_receipt_items[]
+  employees              employees             @relation(fields: [created_by_employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores                 stores                @relation(fields: [store_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  suppliers              suppliers             @relation(fields: [supplier_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model images {
+  id               String            @id @default(uuid())
+  url              String            @db.VarChar(255)
+  alt_text         String?           @db.VarChar(255)
+  product_id       String
+  variant_id       String?
+  products         products          @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants? @relation(fields: [variant_id], references: [id], onUpdate: NoAction)
+}
+
+model inventory {
+  variant_id       String
+  store_id         String
+  quantity         Int              @default(0)
+  stores           stores           @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([variant_id, store_id])
+}
+
+model loyalty_point_history {
+  id               String               @id @default(uuid())
+  user_id          String
+  points_change    Int
+  transaction_type PointTransactionType
+  order_id         String?
+  notes            String?
+  created_at       DateTime             @default(now()) @db.Timestamp(6)
+  orders           orders?              @relation(fields: [order_id], references: [id], onUpdate: NoAction)
+  users            users                @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model membership_tiers {
+  id                   String          @id @default(uuid())
+  tier_name            String          @unique @db.VarChar(100)
+  points_threshold     Int
+  benefits_description String?
+  user_profiles        user_profiles[]
+}
+
+model order_items {
+  id                    String                 @id @default(uuid())
+  order_id              String
+  variant_id            String?
+  sku_snapshot          String                 @db.VarChar(100)
+  product_name_snapshot String                 @db.VarChar(255)
+  variant_name_snapshot String                 @db.VarChar(255)
+  quantity              Int
+  unit_price            Decimal                @db.Decimal(15, 2)
+  subtotal              Decimal                @db.Decimal(15, 2)
+  orders                orders                 @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants      product_variants?      @relation(fields: [variant_id], references: [id], onUpdate: NoAction)
+  return_request_items  return_request_items[]
+  shipment_items        shipment_items[]
+}
+
+model order_statuses {
+  id          String   @id @default(uuid())
+  status_name String   @unique @db.VarChar(50)
+  orders      orders[]
+}
+
+model orders {
+  id                        String                  @id @default(uuid())
+  code                      String                  @unique @db.VarChar(50)
+  user_id                   String?
+  employee_id               String?
+  store_id                  String?
+  type                      OrderType
+  voucher_id                String?
+  user_name_snapshot        String                  @db.VarChar(255)
+  user_email_snapshot       String?                 @db.VarChar(255)
+  user_phone_snapshot       String?                 @db.VarChar(20)
+  shipping_address_snapshot String?
+  employee_name_snapshot    String?                 @db.VarChar(255)
+  subtotal                  Decimal                 @db.Decimal(15, 2)
+  shipping_fee              Decimal?                @default(0) @db.Decimal(15, 2)
+  discount_amount           Decimal?                @default(0) @db.Decimal(15, 2)
+  total                     Decimal                 @db.Decimal(15, 2)
+  order_status_id           String
+  payment_method_id         String
+  payment_status_id         String
+  created_at                DateTime                @default(now()) @db.Timestamp(6)
+  updated_at                DateTime                @default(now()) @db.Timestamp(6)
+  loyalty_point_history     loyalty_point_history[]
+  order_items               order_items[]
+  employees                 employees?              @relation(fields: [employee_id], references: [id], onUpdate: NoAction)
+  order_statuses            order_statuses          @relation(fields: [order_status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment_methods           payment_methods         @relation(fields: [payment_method_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment_statuses          payment_statuses        @relation(fields: [payment_status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stores                    stores?                 @relation(fields: [store_id], references: [id], onUpdate: NoAction)
+  users                     users?                  @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  vouchers                  vouchers?               @relation(fields: [voucher_id], references: [id], onUpdate: NoAction)
+  payment_transactions      payment_transactions[]
+  product_reviews           product_reviews[]
+  return_requests           return_requests[]
+  shipments                 shipments[]
+  support_tickets           support_tickets[]
+}
+
+model payment_methods {
+  id          String   @id @default(uuid())
+  method_name String   @unique @db.VarChar(50)
+  orders      orders[]
+}
+
+model payment_statuses {
+  id          String   @id @default(uuid())
+  status_name String   @unique @db.VarChar(50)
+  orders      orders[]
+}
+
+model payment_transactions {
+  id                     String            @id @default(uuid())
+  order_id               String
+  gateway_transaction_id String?           @db.VarChar(255)
+  amount                 Decimal           @db.Decimal(15, 2)
+  payment_method         String            @db.VarChar(100)
+  status                 TransactionStatus
+  error_message          String?
+  transaction_date       DateTime          @default(now()) @db.Timestamp(6)
+  orders                 orders            @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model permissions {
+  id               String             @id @default(uuid())
+  permission_name  String             @unique @db.VarChar(100)
+  permission_group String             @db.VarChar(50)
+  description      String?
+  role_permissions role_permissions[]
+}
+
+model post_comments {
+  id                  String          @id @default(uuid())
+  post_id             String
+  parent_comment_id   String?
+  content             String
+  user_id             String?
+  commenter_name      String?         @db.VarChar(255)
+  commenter_email     String?         @db.VarChar(255)
+  status              CommentStatus   @default(pending_approval)
+  created_at          DateTime        @default(now()) @db.Timestamp(6)
+  post_comments       post_comments?  @relation("post_commentsTopost_comments", fields: [parent_comment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  other_post_comments post_comments[] @relation("post_commentsTopost_comments")
+  posts               posts           @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users               users?          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model posts {
+  id                 String          @id @default(uuid())
+  title              String          @db.VarChar(255)
+  slug               String          @unique @db.VarChar(255)
+  content            String
+  featured_image_url String?         @db.VarChar(255)
+  author_id          String?
+  status             PostStatus      @default(draft)
+  published_at       DateTime?       @db.Timestamp(6)
+  created_at         DateTime        @default(now()) @db.Timestamp(6)
+  updated_at         DateTime        @default(now()) @db.Timestamp(6)
+  post_comments      post_comments[]
+  employees          employees?      @relation(fields: [author_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+}
+
+model product_reviews {
+  id         String        @id @default(uuid())
+  order_id   String
+  product_id String
+  user_id    String
+  rating     Int
+  comment    String?
+  status     CommentStatus @default(approved)
+  created_at DateTime      @default(now()) @db.Timestamp(6)
+  orders     orders        @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products   products      @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model product_tags {
+  product_id String
+  tag_id     String
+  products   products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tags       tags     @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([product_id, tag_id])
+}
+
+model product_variants {
+  id                       String                     @id @default(uuid())
+  product_id               String
+  sku                      String                     @unique @db.VarChar(100)
+  variant_name             String                     @db.VarChar(255)
+  price                    Decimal                    @db.Decimal(15, 2)
+  allow_preorder           Boolean                    @default(false)
+  status                   ProductStatus              @default(active)
+  deleted_at               DateTime?                  @db.Timestamp(6)
+  created_at               DateTime                   @default(now()) @db.Timestamp(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamp(6)
+  cart_items               cart_items[]
+  goods_receipt_items      goods_receipt_items[]
+  images                   images[]
+  inventory                inventory[]
+  order_items              order_items[]
+  products                 products                   @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  variant_attribute_values variant_attribute_values[]
+}
+
+model product_view_history {
+  id         String   @id @default(uuid())
+  user_id    String?
+  product_id String
+  session_id String?  @db.VarChar(255)
+  viewed_at  DateTime @default(now()) @db.Timestamp(6)
+  products   products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model products {
+  id                   String                 @id @default(uuid())
+  name                 String                 @db.VarChar(255)
+  description          String?
+  status               ProductStatus          @default(active)
+  deleted_at           DateTime?              @db.Timestamp(6)
+  created_at           DateTime               @default(now()) @db.Timestamp(6)
+  updated_at           DateTime               @default(now()) @db.Timestamp(6)
+  images               images[]
+  product_reviews      product_reviews[]
+  product_tags         product_tags[]
+  product_variants     product_variants[]
+  product_view_history product_view_history[]
+  wishlists            wishlists[]
+}
+
+model promotions {
+  id          String         @id @default(uuid())
+  name        String         @db.VarChar(255)
+  description String?
+  type        PromotionType
+  conditions  Json
+  actions     Json
+  start_date  DateTime       @db.Timestamp(6)
+  end_date    DateTime       @db.Timestamp(6)
+  status      ActivityStatus @default(active)
+}
+
+model refund_transactions {
+  id                    String            @id @default(uuid())
+  return_request_id     String
+  refund_transaction_id String?           @db.VarChar(255)
+  refund_amount         Decimal           @db.Decimal(15, 2)
+  refund_method         String            @db.VarChar(100)
+  status                TransactionStatus
+  notes                 String?
+  refund_date           DateTime          @default(now()) @db.Timestamp(6)
+  return_requests       return_requests   @relation(fields: [return_request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model return_request_items {
+  id                String          @id @default(uuid())
+  return_request_id String
+  order_item_id     String
+  quantity          Int
+  order_items       order_items     @relation(fields: [order_item_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  return_requests   return_requests @relation(fields: [return_request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model return_requests {
+  id                       String                 @id @default(uuid())
+  code                     String                 @unique @db.VarChar(50)
+  original_order_id        String
+  processed_by_employee_id String
+  reason                   String
+  total_refund_amount      Decimal                @db.Decimal(15, 2)
+  status                   ReturnStatus
+  created_at               DateTime               @default(now()) @db.Timestamp(6)
+  refund_transactions      refund_transactions[]
+  return_request_items     return_request_items[]
+  orders                   orders                 @relation(fields: [original_order_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  employees                employees              @relation(fields: [processed_by_employee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model role_permissions {
+  role_id       String
+  permission_id String
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roles         roles       @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([role_id, permission_id])
+}
+
+model roles {
+  id               String             @id @default(uuid())
+  role_name        String             @unique @db.VarChar(50)
+  description      String?
+  status           ActivityStatus     @default(active)
+  employee_roles   employee_roles[]
+  role_permissions role_permissions[]
+}
+
+model shipment_items {
+  shipment_id   String
+  order_item_id String
+  quantity      Int
+  order_items   order_items @relation(fields: [order_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  shipments     shipments   @relation(fields: [shipment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([shipment_id, order_item_id])
+}
+
+model shipments {
+  id                      String           @id @default(uuid())
+  order_id                String
+  code                    String           @unique @db.VarChar(50)
+  shipping_carrier        String?          @db.VarChar(100)
+  tracking_code           String?          @db.VarChar(100)
+  actual_shipping_cost    Decimal?         @db.Decimal(15, 2)
+  status                  ShipmentStatus   @default(pending_pickup)
+  shipped_at              DateTime?        @db.Timestamp(6)
+  estimated_delivery_date DateTime?        @db.Date
+  shipping_notes          String?
+  shipment_items          shipment_items[]
+  orders                  orders           @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model stores {
+  id                  String                @id @default(uuid())
+  name                String                @unique @db.VarChar(255)
+  address             String                @db.VarChar(255)
+  phone_number        String?               @db.VarChar(20)
+  status              StoreStatus           @default(active)
+  daily_sales_reports daily_sales_reports[]
+  employees           employees[]
+  goods_receipts      goods_receipts[]
+  inventory           inventory[]
+  orders              orders[]
+}
+
+model suppliers {
+  id             String            @id @default(uuid())
+  name           String            @unique @db.VarChar(255)
+  contact_person String?           @db.VarChar(255)
+  email          String?           @db.VarChar(255)
+  phone_number   String?           @db.VarChar(20)
+  address        String?
+  status         PartnershipStatus @default(active)
+  goods_receipts goods_receipts[]
+}
+
+model support_tickets {
+  id             String           @id @default(uuid())
+  code           String           @unique @db.VarChar(50)
+  user_id        String
+  order_id       String?
+  subject        String           @db.VarChar(255)
+  content        String
+  assignee_id    String?
+  status         TicketStatus     @default(new)
+  priority       TicketPriority   @default(medium)
+  created_at     DateTime         @default(now()) @db.Timestamp(6)
+  closed_at      DateTime?        @db.Timestamp(6)
+  employees      employees?       @relation(fields: [assignee_id], references: [id], onUpdate: NoAction)
+  orders         orders?          @relation(fields: [order_id], references: [id], onUpdate: NoAction)
+  users          users            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ticket_replies ticket_replies[]
+}
+
+model tags {
+  id           String         @id @default(uuid())
+  tag_name     String         @unique @db.VarChar(50)
+  description  String?
+  deleted_at   DateTime?      @db.Timestamp(6)
+  product_tags product_tags[]
+}
+
+model ticket_replies {
+  id              String          @id @default(uuid())
+  ticket_id       String
+  replier_id      String
+  replier_type    ActorType
+  content         String
+  created_at      DateTime        @default(now()) @db.Timestamp(6)
+  support_tickets support_tickets @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model user_addresses {
+  id             String  @id @default(uuid())
+  user_id        String
+  province_city  String  @db.VarChar(100)
+  district       String  @db.VarChar(100)
+  ward_commune   String  @db.VarChar(100)
+  street_address String  @db.VarChar(255)
+  is_default     Boolean @default(false)
+  users          users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model user_profiles {
+  id                 String            @id @default(uuid())
+  user_id            String            @unique
+  full_name          String            @db.VarChar(255)
+  avatar_url         String?           @db.VarChar(255)
+  phone_number       String?           @unique @db.VarChar(20)
+  gender             Gender?
+  date_of_birth      DateTime?         @db.Date
+  loyalty_points     Int               @default(0)
+  membership_tier_id String?
+  company_id         String?
+  companies          companies?        @relation(fields: [company_id], references: [id], onUpdate: NoAction)
+  membership_tiers   membership_tiers? @relation(fields: [membership_tier_id], references: [id], onUpdate: NoAction)
+  users              users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model users {
+  id                     String                   @id @default(uuid())
+  email                  String                   @unique @db.VarChar(255)
+  password_hash          String                   @db.VarChar(255)
+  created_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamp(6)
+  deleted_at             DateTime?                @db.Timestamp(6)
+  cart_items             cart_items[]
+  customer_group_members customer_group_members[]
+  loyalty_point_history  loyalty_point_history[]
+  orders                 orders[]
+  post_comments          post_comments[]
+  product_reviews        product_reviews[]
+  product_view_history   product_view_history[]
+  support_tickets        support_tickets[]
+  user_addresses         user_addresses[]
+  user_profiles          user_profiles?
+  wishlists              wishlists[]
+}
+
+model variant_attribute_values {
+  variant_id         String
+  attribute_value_id String
+  attribute_values   attribute_values @relation(fields: [attribute_value_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product_variants   product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([variant_id, attribute_value_id])
+}
+
+model vouchers {
+  id                  String         @id @default(uuid())
+  code                String         @unique @db.VarChar(50)
+  title               String         @db.VarChar(255)
+  description         String?
+  discount_type       DiscountType
+  discount_value      Decimal        @db.Decimal(15, 2)
+  min_order_value     Decimal?       @default(0) @db.Decimal(15, 2)
+  max_discount_amount Decimal?       @db.Decimal(15, 2)
+  start_date          DateTime       @db.Timestamp(6)
+  end_date            DateTime       @db.Timestamp(6)
+  initial_quantity    Int
+  used_quantity       Int            @default(0)
+  status              ActivityStatus @default(active)
+  orders              orders[]
+}
+
+model wishlists {
+  user_id    String
+  product_id String
+  added_at   DateTime @default(now()) @db.Timestamp(6)
+  products   products @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, product_id])
+}
+
+enum ActivityStatus {
+  active
+  inactive
+}
+
+enum ActorType {
+  EMPLOYEE
+  USER
+  SYSTEM
+}
+
+enum CommentStatus {
+  pending_approval
+  approved
+  spam
+}
+
+enum DiscountType {
+  percentage
+  fixed_amount
+}
+
+enum EmailStatus {
+  queued
+  sending
+  sent
+  failed
+}
+
+enum EmailType {
+  ORDER_CONFIRMATION
+  SHIPPING_UPDATE
+  PASSWORD_RESET
+  MARKETING
+  OTHER_NOTIFICATION
+}
+
+enum EmployeeStatus {
+  active
+  terminated
+}
+
+enum Gender {
+  male
+  female
+  other
+}
+
+enum OrderType {
+  online
+  in_store
+  pre_order
+}
+
+enum PartnershipStatus {
+  active
+  inactive
+}
+
+enum PointTransactionType {
+  purchase
+  redemption
+  tier_upgrade
+  admin_adjustment
+  return
+}
+
+enum PostStatus {
+  draft
+  published
+  archived
+}
+
+enum ProductStatus {
+  active
+  hidden
+  discontinued
+}
+
+enum PromotionType {
+  ORDER_DISCOUNT
+  BUY_X_GET_Y
+  PRODUCT_DISCOUNT
+  FREE_SHIPPING
+}
+
+enum ReturnStatus {
+  pending
+  approved
+  rejected
+  completed
+}
+
+enum ShipmentStatus {
+  pending_pickup
+  in_transit
+  delivered
+  failed_delivery
+  returning
+}
+
+enum StoreStatus {
+  active
+  temporarily_closed
+  permanently_closed
+}
+
+enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum TicketStatus {
+  new
+  in_progress
+  pending_reply
+  closed
+}
+
+enum TransactionStatus {
+  successful
+  failed
+  pending
+}

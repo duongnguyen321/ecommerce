@@ -1,0 +1,60 @@
+{
+  "name": "base",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "prisma generate",
+    "prebuild": "prisma generate",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "clean": "rm -rf .next && rm -rf node_modules",
+    "seed": "prisma db seed",
+    "flushall": "bun run prisma/flushall.ts"
+  },
+  "prisma": {
+    "seed": "bun run prisma/seed.ts"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.4",
+    "@emotion/styled": "^11.11.5",
+    "@heroui/react": "2.7.9",
+    "@heroui/system": "2.4.16",
+    "@heroui/theme": "2.4.16",
+    "@mui/icons-material": "^5.15.15",
+    "@prisma/client": "^5.10.2",
+    "@react-aria/ssr": "^3.9.2",
+    "@react-aria/visually-hidden": "^3.8.10",
+    "clsx": "^2.1.0",
+    "framer-motion": "^11.0.24",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0",
+    "moment": "^2.30.1",
+    "next": "14.2.3",
+    "next-themes": "^0.2.1",
+    "nodemailer": "^7.0.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "redis": "^5.5.6",
+    "sass": "^1.72.0",
+    "sharp": "^0.33.0",
+    "tailwind-merge": "^3.3.0"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^9.8.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "bcryptjs": "^3.0.2",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "prisma": "^5.14.0",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

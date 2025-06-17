@@ -1,0 +1,1164 @@
+// ======================================================
+// == DATABASE FOR RETAIL SYSTEM (ONLINE + OFFLINE)
+// ======================================================
+// Language: English
+// Naming Convention: snake_case
+// Version: 2.2.1 (Detailed Annotation, UUID-based IDs)
+// ======================================================
+
+Project "RetailSystem" {
+  database_type: 'PostgreSQL'
+  Note: '''
+  ### Complete DB schema for a professional retail system.
+
+  **EXTENDED FEATURES (VERSION 2.2.1):**
+  - **Advanced Promotion System**: Supports automatic promotions (Buy X Get Y, tiered discounts) and customer group-based promotions.
+  - **Loyalty Program System**: Manages Membership Tiers and detailed Point History.
+  - **Pre-order Management**: Supports selling upcoming products.
+  - **Detailed Payment & Refund System**: Logs transactions with payment gateways and manages refunds.
+  - **Dynamic Product Attributes**: Manages attributes (size, color) flexibly.
+  - **Reporting Platform**: Summary tables for fast reporting.
+  - **B2B Support**: Manages business customer information.
+  - **Customer Support System (Ticketing)**: Manages complaints and support requests.
+  '''
+}
+
+// =============================================
+// == GROUP 1: USERS & EMPLOYEES (RBAC)
+// =============================================
+
+Table users {
+  Note: '''
+  ### Users Table
+  - **Purpose**: Stores core authentication information for customers.
+  - **Design**: Separates login information (`users`) from personal information (`user_profiles`) for security and performance optimization.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire `users` object and its related `user_profiles`.
+  - **Duration**: Cache for the duration of the user's login session (session-based).
+  - **Invalidation**: When the user updates their personal info, changes their password, or logs out.
+  '''
+  id text [pk, note: 'Unique identifier for the user (e.g., UUID)']
+  email varchar(255) [unique, not null, note: 'Email used for login, must be unique']
+  password_hash varchar(255) [not null, note: 'Hashed password using a secure algorithm like Argon2 or bcrypt']
+  created_at timestamp [default: `now()`, not null, note: 'Timestamp when the account was created']
+  updated_at timestamp [default: `now()`, not null, note: 'Timestamp when the account was last updated']
+  deleted_at timestamp [note: 'Soft-delete: Marks the deletion timestamp. NULL if not deleted. Helps preserve related data (invoices, etc.).']
+}
+
+Table user_profiles {
+  Note: '''
+  ### User Profiles Table
+  - **Purpose**: Stores detailed profile information for customers.
+  - **Design**: 1-to-1 relationship with the `users` table.
+
+  **Caching Strategy:**
+  - **Strategy**: Cached along with the `users` object.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  user_id text [unique, not null, note: 'Foreign key, 1-to-1 relationship with the users table']
+  full_name varchar(255) [not null, note: 'Full name of the user']
+  avatar_url varchar(255) [note: 'URL to the profile picture']
+  phone_number varchar(20) [unique, note: 'Contact phone number, can be unique']
+  gender Gender [note: 'Gender of the user']
+  date_of_birth date [note: 'Date of birth, used for birthday promotions']
+  loyalty_points int [default: 0, not null, note: 'Total current points of the customer. Updated by transactions in `loyalty_point_history`']
+  membership_tier_id text [note: 'Current membership level of the customer. Updated by a scheduled job or trigger.']
+  company_id text [note: 'If this user represents a company (B2B)']
+}
+
+Enum Gender {
+  male
+  female
+  other
+}
+
+Table user_addresses {
+  Note: '''
+  ### User Addresses Table
+  - **Purpose**: Allows users to save multiple shipping addresses.
+
+  **Caching Strategy:**
+  - **Cache Object**: List of addresses by `user_id`.
+  - **Duration**: Session-based cache or short-term cache (15-30 minutes).
+  - **Invalidation**: When a user adds/edits/deletes an address.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  user_id text [not null, note: 'Foreign key, indicates which user this address belongs to']
+  province_city varchar(100) [not null, note: 'Province/City']
+  district varchar(100) [not null, note: 'District']
+  ward_commune varchar(100) [not null, note: 'Ward/Commune']
+  street_address varchar(255) [not null, note: 'Detailed address: house number, street name...']
+  is_default boolean [default: false, not null, note: 'True if this is the default shipping address']
+}
+
+Table employees {
+  Note: '''
+  ### Employees Table
+  - **Purpose**: Manages employee accounts and information.
+
+  **Caching Strategy:**
+  - **Cache Object**: Employee information (excluding password).
+  - **Duration**: Data changes infrequently, can be cached for a long term (several hours).
+  - **Invalidation**: When employee information is updated in the admin panel.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  full_name varchar(255) [not null, note: 'Employees full name']
+  email varchar(255) [unique, not null, note: 'Employees login email']
+  password_hash varchar(255) [not null, note: 'Hashed password']
+  phone_number varchar(20)
+  avatar_url varchar(255)
+  store_id text [note: 'Which store this employee works at. Null for high-level managers.']
+  status EmployeeStatus [not null, default: 'active', note: 'Manages the employment status of the employee']
+  is_super_admin boolean [not null, default: false, note: 'Special flag for Super Admin, has all system permissions, bypasses all other permission checks.']
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Enum EmployeeStatus {
+  active
+  terminated
+}
+
+Table roles {
+  Note: '''
+  ### Roles Table (RBAC)
+  - **Purpose**: Defines roles within the system (Role-Based Access Control).
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table data.
+  - **Duration**: Extremely static data. Cache indefinitely or long-term (24 hours).
+  - **Invalidation**: When changes are made in the admin panel or when new code is deployed.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  role_name varchar(50) [unique, not null, note: 'Unique role identifier. E.g., "Admin", "Inventory Manager", "Sales Staff"']
+  description text [note: 'Detailed description of the permissions for this role']
+  status ActivityStatus [not null, default: 'active', note: 'Allows temporarily disabling a role without deleting it']
+}
+
+Table employee_roles {
+  Note: '''
+  ### Employee-Roles Table
+  - **Purpose**: Junction table to assign roles to employees.
+
+  **Caching Strategy:**
+  - **Cache Object**: List of `role_id` by `employee_id`.
+  - **Duration**: Cached along with employee information.
+  - **Invalidation**: When an employees permissions are changed.
+  '''
+  employee_id text [not null, note: 'Foreign key to the employees table']
+  role_id text [not null, note: 'Foreign key to the roles table']
+indexes { (employee_id, role_id) [pk, note: 'An employee can have multiple roles'] }
+
+}
+
+Table permissions {
+  Note: '''
+  ### Permissions Table (RBAC)
+  - **Purpose**: Defines granular permissions within the system.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table data.
+  - **Duration**: Extremely static data. Cache indefinitely.
+  - **Invalidation**: Only when new code with added/removed permissions is deployed.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  permission_name varchar(100) [unique, not null, note: 'Unique permission name, often in `resource:action` format. E.g., "product:create", "order:update_status"']
+  permission_group varchar(50) [not null, note: 'Permission group for easy management on the UI. E.g., "Product", "Order", "User"']
+  description text
+}
+
+Table role_permissions {
+  Note: '''
+  ### Role-Permissions Table
+  - **Purpose**: Junction table to assign permissions to roles.
+
+  **Caching Strategy:**
+  - **Cache Object**: List of `permission_id` by `role_id`.
+  - **Duration**: Cached along with role information.
+  - **Invalidation**: When a roles permissions are changed.
+  '''
+  role_id text [not null, note: 'Foreign key to roles']
+  permission_id text [not null, note: 'Foreign key to permissions']
+indexes { (role_id, permission_id) [pk, note: 'Assigns a permission to a role'] }
+
+}
+
+// == EXTENDED TABLES: LOYALTY & B2B ==
+Table membership_tiers {
+  Note: '''
+  ### Membership Tiers Table
+  - **Purpose**: Defines the levels of the customer loyalty program.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table data.
+  - **Duration**: Static data. Long-term cache (several hours).
+  - **Invalidation**: When an admin changes the membership tier configuration.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  tier_name varchar(100) [unique, not null, note: 'Name of the membership tier. E.g., Bronze, Silver, Gold, Diamond']
+  points_threshold int [not null, note: 'Minimum points required to achieve this tier']
+  benefits_description text [note: 'Description of the tiers benefits, can be displayed to the customer.']
+}
+
+Table loyalty_point_history {
+  Note: '''
+  ### Loyalty Point History Table
+  - **Purpose**: Logs every transaction that changes a customers points. This is the "source of truth" for points.
+  - **Design**: Append-only log table.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. This is transactional data and needs to be queried directly to ensure accuracy.
+  '''
+  id text [pk, note: 'Unique transaction ID (e.g., UUID)']
+  user_id text [not null]
+  points_change int [not null, note: 'The change in points (positive: earning, negative: spending)']
+  transaction_type PointTransactionType [not null, note: 'The type of transaction that caused the point change']
+  order_id text [note: 'Related order ID (if any)']
+  notes text [note: 'Detailed notes, e.g., "Admin bonus point adjustment"']
+  created_at timestamp [default: `now()`, not null]
+}
+
+Enum PointTransactionType {
+  purchase
+  redemption
+  tier_upgrade
+  admin_adjustment
+  return
+}
+
+Table customer_groups {
+  Note: '''
+  ### Customer Groups Table
+  - **Purpose**: Segments customers to apply specific promotions or marketing campaigns.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table data.
+  - **Duration**: Infrequently changed data. Long-term cache (several hours).
+  - **Invalidation**: When an admin creates/edits/deletes a group.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  group_name varchar(255) [unique, not null, note: 'Name of the customer group. E.g., "New Customers", "VIP", "High-Value Customers"']
+  description text
+}
+
+Table customer_group_members {
+  Note: '''
+  ### Customer Group - User Table
+  - **Purpose**: Assigns users to customer groups. Assignment can be manual or automated by a job.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE** directly. A users group information can be cached along with the users session data.
+  '''
+  customer_group_id text [not null]
+  user_id text [not null]
+indexes { (customer_group_id, user_id) [pk] }
+
+}
+
+Table companies {
+  Note: '''
+  ### Companies Table (B2B)
+  - **Purpose**: Stores information about business customers.
+
+  **Caching Strategy:**
+  - **Cache Object**: Company information by ID.
+  - **Duration**: Infrequently changed data. Long-term cache (several hours).
+  - **Invalidation**: When information is updated.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  company_name varchar(255) [not null]
+  tax_code varchar(50) [unique]
+  billing_address text
+  company_email varchar(255)
+  company_phone varchar(20)
+  notes text
+}
+
+// =============================================
+// == GROUP 2: PRODUCTS & CATEGORIES
+// =============================================
+
+Table products {
+  Note: '''
+  ### Products Table
+  - **Purpose**: Stores the most general information about a product.
+  - **Design**: A `Product` can have multiple `ProductVariant`s.
+
+  **Caching Strategy:**
+  - **Cache Object**: Product data, list of variants, images, attributes.
+  - **Duration**: High-read data. Medium-term cache (5-15 minutes).
+  - **Invalidation**: When an admin updates the product or related information. Use a cache-invalidation mechanism (clear cache on change).
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  name varchar(255) [not null, note: 'Display name of the product']
+  description text [note: 'Detailed product description, supports HTML or Markdown']
+  status ProductStatus [not null, default: 'active', note: 'Business status of the product (visible, hidden, etc.)']
+  deleted_at timestamp [note: 'Soft-delete: Marks the deletion timestamp. NULL if not deleted.']
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Enum ProductStatus {
+  active
+  hidden
+  discontinued
+}
+
+Table product_variants {
+  Note: '''
+  ### Product Variants Table
+  - **Purpose**: Represents a specific, sellable version of a product (SKU). Example: T-shirt A, size L, color Red.
+
+  **Caching Strategy:**
+  - **Strategy**: Cached along with the parent `Product`.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  product_id text [not null, note: 'Foreign key, indicates which product this variant belongs to']
+  sku varchar(100) [unique, not null, note: 'SKU (Stock Keeping Unit) - Unique identifier for each variant, used for inventory management']
+  variant_name varchar(255) [not null, note: 'Name of the variant. E.g., "Color Red, Size L" (can be auto-generated from attributes)']
+  price decimal(15, 2) [not null, note: 'Actual selling price of this variant']
+  allow_preorder boolean [default: false, not null, note: 'True if this product can be pre-ordered when out of stock']
+  status ProductStatus [not null, default: 'active', note: 'Allows hiding/showing a specific variant']
+  deleted_at timestamp [note: 'Soft-delete: Marks the deletion timestamp. NULL if not deleted.']
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+// == EXTENDED TABLES: DYNAMIC PRODUCT ATTRIBUTES ==
+Table attributes {
+  Note: '''
+  ### Attributes Table
+  - **Purpose**: Defines the types of attributes a product can have.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Static data. Long-term cache.
+  - **Invalidation**: When an admin adds/edits/deletes an attribute.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  attribute_name varchar(100) [unique, not null, note: 'Name of the attribute. E.g., "Color", "Size", "Material"']
+}
+
+Table attribute_values {
+  Note: '''
+  ### Attribute Values Table
+  - **Purpose**: Stores the possible values for each attribute.
+
+  **Caching Strategy:**
+  - **Strategy**: Cached along with the parent `Attribute`.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  attribute_id text [not null]
+  value varchar(100) [not null, note: 'Value of the attribute. E.g., "Red", "Blue", "S", "M"']
+indexes { (attribute_id, value) [unique] }
+
+}
+
+Table variant_attribute_values {
+  Note: '''
+  ### Variant and Attribute Value Junction Table
+  - **Purpose**: Assigns (attribute, value) pairs to a variant.
+
+  **Caching Strategy:**
+  - **Strategy**: Cached along with `ProductVariant`.
+  '''
+  variant_id text [not null]
+  attribute_value_id text [not null]
+indexes { (variant_id, attribute_value_id) [pk] }
+
+}
+
+Table images {
+  Note: '''
+  ### Images Table
+  - **Purpose**: Centralized management of images for products and variants.
+
+  **Caching Strategy:**
+  - **Strategy**: Cached along with `Product` or `ProductVariant`.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  url varchar(255) [not null, note: 'URL of the image file, usually on a CDN']
+  alt_text varchar(255) [note: 'Alternative text for the image, important for SEO']
+  product_id text [not null, note: 'Which product this image belongs to']
+  variant_id text [note: 'If this image is specific to a particular variant. Null if its a general product image.']
+}
+
+Table tags {
+  Note: '''
+  ### Tags Table
+  - **Purpose**: Creates flexible categories/labels for products.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Static data. Long-term cache.
+  - **Invalidation**: When an admin manages tags.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  tag_name varchar(50) [unique, not null, note: 'Name of the tag/category. E.g., "T-shirt", "New Arrivals"']
+  description text
+  deleted_at timestamp [note: 'Soft-delete: Allows deleting a tag without affecting old products that were tagged with it']
+}
+
+Table product_tags {
+  Note: '''
+  ### Product-Tag Junction Table
+  - **Purpose**: Many-to-many relationship between `Product` and `Tag`.
+
+  **Caching Strategy:**
+  - **Strategy**: Cache the list of tags along with the `Product`.
+  '''
+  product_id text [not null]
+  tag_id text [not null]
+indexes { (product_id, tag_id) [pk] }
+
+}
+
+Table product_reviews {
+  Note: '''
+  ### Product Reviews Table
+  - **Purpose**: Stores customer reviews and comments about products.
+
+  **Caching Strategy:**
+  - **Cache Object**: List of reviews by `product_id`.
+  - **Duration**: Medium-term cache (15-30 minutes).
+  - **Invalidation**: When a new review is approved.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  order_id text [not null, note: 'Foreign key, only those who have purchased (have an order) can review']
+  product_id text [not null, note: 'The product being reviewed']
+  user_id text [not null, note: 'The user who wrote the review']
+  rating int [not null, note: 'Star rating, from 1 to 5']
+  comment text [note: 'Detailed comment content']
+  status CommentStatus [not null, default: 'approved', note: 'Moderation status of the review']
+  created_at timestamp [default: `now()`, not null]
+}
+
+// =============================================
+// == GROUP 3: INVENTORY & SUPPLIERS
+// =============================================
+
+Table stores {
+  Note: '''
+  ### Stores Table
+  - **Purpose**: Manages physical store branches or online warehouses.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Very static data. Long-term cache (several hours).
+  - **Invalidation**: When an admin changes store information.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  name varchar(255) [unique, not null, note: 'Name of the branch/store. E.g., "District 1 Branch", "Online Warehouse"']
+  address varchar(255) [not null, note: 'Address of the store/warehouse']
+  phone_number varchar(20)
+  status StoreStatus [not null, default: 'active', note: 'Manages the operational status of the store']
+}
+
+Enum StoreStatus {
+  active
+  temporarily_closed
+  permanently_closed
+}
+
+Table inventory {
+  Note: '''
+  ### Inventory Table
+  - **Purpose**: Manages the stock quantity of each product variant at each store/warehouse.
+  - **Design**: This is the most frequently updated table in the system.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Inventory data must always be read from the DB to ensure absolute accuracy and prevent overselling.
+  '''
+  variant_id text [not null, note: 'Foreign key to the product variant']
+  store_id text [not null, note: 'Foreign key to the store/warehouse holding the product']
+  quantity int [not null, default: 0, note: 'Stock quantity of the variant at the corresponding store']
+indexes { (variant_id, store_id) [pk] }
+
+}
+
+Table suppliers {
+  Note: '''
+  ### Suppliers Table
+  - **Purpose**: Manages information about goods suppliers.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Static data. Long-term cache.
+  - **Invalidation**: When an admin updates supplier information.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  name varchar(255) [unique, not null, note: 'Name of the supplying company/entity']
+  contact_person varchar(255)
+  email varchar(255)
+  phone_number varchar(20)
+  address text
+  status PartnershipStatus [not null, default: 'active', note: 'Manages the partnership status with the supplier']
+}
+
+Enum PartnershipStatus {
+  active
+  inactive
+}
+
+Table goods_receipts {
+  Note: '''
+  ### Goods Receipts Table
+  - **Purpose**: Records the overview information of a stock intake.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Backend operational data, transactional in nature.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  code varchar(50) [unique, not null, note: 'Reference code for the receipt, can be user-defined']
+  supplier_id text [not null, note: 'Goods received from which supplier']
+  created_by_employee_id text [not null, note: 'Which employee created the receipt']
+  store_id text [not null, note: 'Goods are received into which warehouse/store']
+  total_amount decimal(15, 2) [not null, note: 'Total value of the receipt, auto-calculated from items']
+  receipt_date timestamp [default: `now()`, not null, note: 'Actual date the goods were received into stock']
+  notes text
+}
+
+Table goods_receipt_items {
+  Note: '''
+  ### Goods Receipt Items Table
+  - **Purpose**: Records each product, quantity, and cost in a goods receipt. Important for calculating Cost of Goods Sold (COGS).
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  goods_receipt_id text [not null, note: 'Belongs to which goods receipt']
+  variant_id text [not null, note: 'The product (variant) being received']
+  quantity int [not null, note: 'Quantity of this product received']
+  unit_cost decimal(15, 2) [not null, note: 'Cost per unit of the product at the time of receipt']
+  subtotal decimal(15, 2) [not null, note: 'quantity * unit_cost']
+}
+
+// =============================================
+// == GROUP 4: SALES & PAYMENTS
+// =============================================
+
+Table cart_items {
+  Note: '''
+  ### Cart Items Table
+  - **Purpose**: Stores products a user has selected but not yet checked out.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Data is specific to each user and changes constantly. Usually managed in session or client-side state.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  user_id text [not null, note: 'Which users cart']
+  variant_id text [not null, note: 'The product (variant) in the cart']
+  quantity int [not null, default: 1]
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+indexes { (user_id, variant_id) [unique, note: 'Each user has only one row for one variant in the cart'] }
+
+}
+
+Table vouchers {
+  Note: '''
+  ### Vouchers Table
+  - **Purpose**: Manages discount codes that customers can enter manually.
+
+  **Caching Strategy:**
+  - **Cache Object**: Active vouchers (`status` = 'active' and within the valid date range).
+  - **Duration**: Short-term cache (1-5 minutes) to quickly reflect changes in quantity.
+  - **Invalidation**: When an admin updates a voucher.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  code varchar(50) [unique, not null, note: 'The code customers will enter']
+  title varchar(255) [not null, note: 'Name of the promotion']
+  description text
+  discount_type DiscountType [not null, note: 'Discount by percentage or fixed amount']
+  discount_value decimal(15, 2) [not null, note: 'The amount or percentage of the discount']
+  min_order_value decimal(15, 2) [default: 0, note: 'Minimum order value to apply the voucher']
+  max_discount_amount decimal(15, 2) [note: 'Maximum discount amount (only applies to percentage discount_type)']
+  start_date timestamp [not null, note: 'Time the voucher becomes effective']
+  end_date timestamp [not null, note: 'Time the voucher expires']
+  initial_quantity int [not null, note: 'Total number of uses for this voucher']
+  used_quantity int [not null, default: 0, note: 'Number of times used, updated via transaction to avoid race conditions']
+  status ActivityStatus [not null, default: 'active', note: 'Allows admin to manually suspend a voucher']
+}
+
+Enum DiscountType {
+  percentage
+  fixed_amount
+}
+
+// == EXTENDED TABLES: AUTOMATIC PROMOTIONS ==
+Table promotions {
+  Note: '''
+  ### Automatic Promotions Table
+  - **Purpose**: Manages complex promotional programs that are automatically applied when conditions are met.
+  - **Design**: Uses `jsonb` to define flexible rules without changing the DB structure.
+
+  **Caching Strategy:**
+  - **Cache Object**: Active promotions.
+  - **Duration**: Short-term cache (5-10 minutes).
+  - **Invalidation**: When an admin updates a promotion.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  name varchar(255) [not null, note: 'Name of the automatic promotion']
+  description text
+  type PromotionType [not null, note: 'Defines the logic of the promotion']
+  conditions jsonb [not null, note: 'Stores application conditions as JSON. E.g., ` {"min_cart_total": 500000, "required_product_ids": ["uuid1", "uuid2"], "customer_group_ids": ["uuid3"]}`']
+  actions jsonb [not null, note: 'Stores promotion actions as JSON. E.g., ` {"discount_type": "percentage", "value": 10}` or ` {"gift_variant_id": "uuid123", "quantity": 1}`']
+  start_date timestamp [not null]
+  end_date timestamp [not null]
+  status ActivityStatus [not null, default: 'active']
+}
+
+Enum PromotionType {
+  ORDER_DISCOUNT // Discount on the total order
+  BUY_X_GET_Y // Buy product X, get product Y for free
+  PRODUCT_DISCOUNT // Discount on specific products/categories
+  FREE_SHIPPING
+}
+
+Table orders {
+  Note: '''
+  ### Orders Table
+  - **Purpose**: The central table for the sales process, recording information about a purchase transaction.
+  - **Design**: Uses `_snapshot` fields to "freeze" information at the time of order creation, ensuring historical data is not affected by later changes (e.g., customer changes name, product changes price).
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Transactional data, requires high accuracy.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  code varchar(50) [unique, not null, note: 'Unique identifier for the order, easy for lookup']
+  user_id text [note: 'ID of the customer. SET NULL if the customer is deleted.']
+  employee_id text [note: 'ID of the employee who created the order. SET NULL if the employee is deleted.']
+  store_id text [note: 'Order created at which store. Null for online orders.']
+  type OrderType [not null, note: 'Differentiates between online, in-store, and pre-orders']
+  voucher_id text
+  user_name_snapshot varchar(255) [not null, note: 'Snapshot of the customers name at the time of purchase']
+  user_email_snapshot varchar(255) [note: 'Snapshot of the customers email']
+  user_phone_snapshot varchar(20) [note: 'Snapshot of the customers phone number']
+  shipping_address_snapshot text [note: 'Snapshot of the full shipping address']
+  employee_name_snapshot varchar(255) [note: 'Snapshot of the name of the employee who created the order']
+  subtotal decimal(15, 2) [not null, note: 'Total value of products before promotions and fees']
+  shipping_fee decimal(15, 2) [default: 0, note: 'Total shipping cost paid by the customer (one-time)']
+  discount_amount decimal(15, 2) [default: 0, note: 'Amount discounted from vouchers/promotions']
+  total decimal(15, 2) [not null, note: 'The final amount the customer has to pay']
+  order_status_id text [not null]
+  payment_method_id text [not null]
+  payment_status_id text [not null]
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Enum OrderType {
+  online
+  in_store
+  pre_order
+}
+
+Table order_items {
+  Note: '''
+  ### Order Items Table
+  - **Purpose**: Stores the "line items" of an `Order`.
+  - **Design**: Stores a snapshot of product information and price to ensure historical data does not change.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  order_id text [not null, note: 'Belongs to which order']
+  variant_id text [note: 'ID of the variant. SET NULL if the variant is deleted.']
+  sku_snapshot varchar(100) [not null, note: 'Snapshot of the variants SKU']
+  product_name_snapshot varchar(255) [not null, note: 'Snapshot of the product name']
+  variant_name_snapshot varchar(255) [not null, note: 'Snapshot of the variant name']
+  quantity int [not null]
+  unit_price decimal(15, 2) [not null, note: 'Price of the product at the time of purchase (immutable)']
+  subtotal decimal(15, 2) [not null, note: 'unit_price * quantity']
+}
+
+Table shipments {
+  Note: '''
+  ### Shipments Table
+  - **Purpose**: Solves the split shipment problem. An `Order` can be divided into multiple packages to be shipped from different warehouses or at different times.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  order_id text [not null, note: 'This package belongs to which order']
+  code varchar(50) [unique, not null, note: 'Internal code to manage the package']
+  shipping_carrier varchar(100) [note: 'Name of the shipping carrier for this package. E.g., "GHTK"']
+  tracking_code varchar(100) [note: 'Tracking code from the shipping carrier for this package']
+  actual_shipping_cost decimal(15, 2) [note: 'Cost the shop pays to the carrier for this package (for reconciliation)']
+  status ShipmentStatus [not null, default: 'pending_pickup']
+  shipped_at timestamp [note: 'Timestamp when the shop handed over the package to the carrier']
+  estimated_delivery_date date
+  shipping_notes text
+}
+
+Enum ShipmentStatus {
+  pending_pickup
+  in_transit
+  delivered
+  failed_delivery
+  returning
+}
+
+Table shipment_items {
+  Note: '''
+  ### Shipment Items Table
+  - **Purpose**: Specifies which product (`OrderItem`) and how many are packed in which `Shipment`.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  shipment_id text [not null, note: 'Foreign key to the shipment']
+  order_item_id text [not null, note: 'Foreign key to the product in the order']
+  quantity int [not null, note: 'Quantity of this product packed in this shipment']
+indexes { (shipment_id, order_item_id) [pk] }
+
+}
+
+Table return_requests {
+  Note: '''
+  ### Return Requests Table
+  - **Purpose**: Manages customer return requests.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  code varchar(50) [unique, not null, note: 'Identifier for the return request']
+  original_order_id text [not null, note: 'The original order the customer wants to return']
+  processed_by_employee_id text [not null, note: 'Employee who processed the return request']
+  reason text [not null, note: 'The reason the customer wants to return the item']
+  total_refund_amount decimal(15, 2) [not null, note: 'Amount to be refunded to the customer']
+  status ReturnStatus [not null, note: 'Status of the return request']
+  created_at timestamp [default: `now()`, not null]
+}
+
+Enum ReturnStatus {
+  pending
+  approved
+  rejected
+  completed
+}
+
+Table return_request_items {
+  Note: '''
+  ### Return Request Items Table
+  - **Purpose**: Records the products and quantities being returned in a return request.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  return_request_id text [not null, note: 'Belongs to which return request']
+  order_item_id text [not null, note: 'The specific product in the original order being returned']
+  quantity int [not null, note: 'Quantity of the product being returned']
+}
+
+// == EXTENDED TABLES: PAYMENT & REFUND HISTORY ==
+Table payment_transactions {
+  Note: '''
+  ### Payment Transactions History Table
+  - **Purpose**: Logs all detailed transactions with the payment gateway, for reconciliation and error handling.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Log table.
+  '''
+  id text [pk, note: 'Unique transaction ID (e.g., UUID)']
+  order_id text [not null]
+  gateway_transaction_id varchar(255) [note: 'Transaction ID from the payment gateway (VNPAY, Momo...). Very important for reconciliation.']
+  amount decimal(15, 2) [not null]
+  payment_method varchar(100) [not null, note: 'Snapshot of the payment method name']
+  status TransactionStatus [not null]
+  error_message text [note: 'Saves the error message from the gateway if the transaction fails']
+  transaction_date timestamp [default: `now()`, not null]
+}
+
+Table refund_transactions {
+  Note: '''
+  ### Refund Transactions Table
+  - **Purpose**: Records details of refund transactions to customers.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Log table.
+  '''
+  id text [pk, note: 'Unique transaction ID (e.g., UUID)']
+  return_request_id text [not null]
+  refund_transaction_id varchar(255) [note: 'Refund transaction ID (if any)']
+  refund_amount decimal(15, 2) [not null]
+  refund_method varchar(100) [not null, note: 'E.g., Bank Transfer, Refund to Credit Card']
+  status TransactionStatus [not null]
+  notes text
+  refund_date timestamp [default: `now()`, not null]
+}
+
+Enum TransactionStatus {
+  successful
+  failed
+  pending
+}
+
+// =============================================
+// == GROUP 5: REFERENCE TABLES & COMMON ENUMS
+// =============================================
+
+Table order_statuses {
+  Note: '''
+  ### Order Statuses Table
+  - **Purpose**: Reference table, defines the possible statuses of an order. Can use string-based IDs like 'pending_confirmation'.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Extremely static data. Cache indefinitely.
+  - **Invalidation**: When new code with process changes is deployed.
+  '''
+  id text [pk, note: 'Unique status identifier, e.g., "pending_confirmation"']
+  status_name varchar(50) [unique, not null, note: 'E.g., "Pending Confirmation", "Processing", "Awaiting Stock", "Shipping", "Completed", "Cancelled"']
+}
+
+Table payment_methods {
+  Note: '''
+  ### Payment Methods Table
+  - **Purpose**: Reference table, defines the supported payment methods. Can use string-based IDs like 'cod'.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Extremely static data. Cache indefinitely.
+  - **Invalidation**: When an admin adds/removes a payment method.
+  '''
+  id text [pk, note: 'Unique method identifier, e.g., "cod"']
+  method_name varchar(50) [unique, not null, note: 'E.g., "Cash on Delivery (COD)", "Bank Transfer", "Card Payment", "E-wallet"']
+}
+
+Table payment_statuses {
+  Note: '''
+  ### Payment Statuses Table
+  - **Purpose**: Reference table, defines the payment statuses of an order. Can use string-based IDs like 'unpaid'.
+
+  **Caching Strategy:**
+  - **Cache Object**: The entire table.
+  - **Duration**: Extremely static data. Cache indefinitely.
+  - **Invalidation**: When new code is deployed.
+  '''
+  id text [pk, note: 'Unique status identifier, e.g., "unpaid"']
+  status_name varchar(50) [unique, not null, note: 'E.g., "Unpaid", "Paid", "Failed", "Refunded"']
+}
+
+Enum ActivityStatus {
+  active
+  inactive
+}
+
+// =============================================
+// == GROUP 6: HISTORY, REPORTING & PERSONALIZATION
+// =============================================
+
+Table activity_logs {
+  Note: '''
+  ### Activity Logs Table (Audit Trail)
+  - **Purpose**: Logs ALL important actions in the system, for auditing, debugging, and tracking.
+  - **Design**: Write-heavy table, can become very large. Needs a periodic cleanup or archiving strategy.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Log table.
+  '''
+  id text [pk, note: 'Unique log ID (e.g., UUID). This table will be very large.']
+  actor_id text [note: 'ID of the person performing the action (can be an employee or a user)']
+  actor_type ActorType [not null, note: 'Differentiates whether the actor is an Employee or a User']
+  action varchar(100) [not null, note: 'Action performed. E.g., "CREATE_ORDER", "UPDATE_PRODUCT", "ASSIGN_ROLE_PERMISSION"']
+  entity varchar(100) [not null, note: 'Table name of the affected object. E.g., "orders", "products", "employee_roles"']
+  entity_id text [not null, note: 'ID of the affected record']
+  change_data jsonb [note: 'Stores detailed changes as JSON. E.g., ` {"before": {...}, "after": {...}}`']
+  notes text [note: 'Additional notes if needed']
+  created_at timestamp [default: `now()`, not null]
+}
+
+Enum ActorType {
+  EMPLOYEE
+  USER
+  SYSTEM
+}
+
+Table wishlists {
+  Note: '''
+  ### Wishlists Table
+  - **Purpose**: Records products that users are interested in. A good signal for personalization and marketing.
+
+  **Caching Strategy:**
+  - **Cache Object**: List of `product_id` by `user_id`.
+  - **Duration**: Cache during the users session.
+  - **Invalidation**: When a user adds/removes a product from the list.
+  '''
+  user_id text [not null, note: 'Foreign key to the user']
+  product_id text [not null, note: 'Foreign key to the wishlisted product']
+  added_at timestamp [default: `now()`, not null, note: 'Timestamp when the product was added to the list']
+indexes { (user_id, product_id) [pk] }
+
+}
+
+Table product_view_history {
+  Note: '''
+  ### Product View History Table
+  - **Purpose**: Records users product browsing behavior. Important data source for recommendation algorithms.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE** directly. This data is often processed asynchronously and pushed to recommendation systems or a separate cache.
+  '''
+  id text [pk, note: 'Unique view ID (e.g., UUID)']
+  user_id text [note: 'The user who viewed the product. Null for guest users.']
+  product_id text [not null, note: 'The product that was viewed']
+  session_id varchar(255) [note: 'Used to group views of guest users within a session']
+  viewed_at timestamp [default: `now()`, not null]
+}
+
+// == EXTENDED TABLE: SUMMARY REPORT ==
+Table daily_sales_reports {
+  Note: '''
+  ### Daily Sales Reports Table
+  - **Purpose**: A summary table (materialized view/summary table) pre-calculated to serve reporting queries quickly without scanning the huge `orders` table.
+  - **Design**: Data is generated by a job that runs nightly.
+
+  **Caching Strategy:**
+  - **Cache Object**: Report data by day/month/year.
+  - **Duration**: Long-term cache (several hours).
+  - **Invalidation**: After the report calculation job finishes.
+  '''
+  report_date date [not null]
+  store_id text [note: 'Null if it is a system-wide summary report. Foreign key to stores.id']
+  total_revenue decimal(18, 2) [not null]
+  order_count int [not null]
+  products_sold_count int [not null]
+  new_customer_count int [not null]
+indexes { (report_date, store_id) [pk] }
+
+}
+
+// =============================================
+// == GROUP 7: CONTENT & COMMUNICATION
+// =============================================
+
+Table posts {
+  Note: '''
+  ### Posts Table (Blog/News)
+  - **Purpose**: Manages blog post content.
+
+  **Caching Strategy:**
+  - **Cache Object**: Published posts.
+  - **Duration**: Long-term cache (several hours).
+  - **Invalidation**: When an admin updates a post.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  title varchar(255) [not null, note: 'Title of the post']
+  slug varchar(255) [unique, not null, note: 'Unique identifier string for the URL, good for SEO']
+  content text [not null, note: 'Detailed content of the post, can be HTML or Markdown']
+  featured_image_url varchar(255) [note: 'URL of the featured image for the post']
+  author_id text [not null, note: 'Foreign key to the employees table, indicates the author']
+  status PostStatus [not null, default: 'draft', note: 'Status of the post']
+  published_at timestamp [note: 'Timestamp when the post was made public']
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+}
+
+Enum PostStatus {
+  draft
+  published
+  archived
+}
+
+Table post_comments {
+  Note: '''
+  ### Post Comments Table
+  - **Purpose**: Stores comments for posts, supports nested comments.
+
+  **Caching Strategy:**
+  - **Cache Object**: List of comments by `post_id`.
+  - **Duration**: Medium-term cache (15-30 minutes).
+  - **Invalidation**: When a new comment is approved.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  post_id text [not null, note: 'This comment belongs to which post']
+  parent_comment_id text [note: 'Self-referencing foreign key, allows for nested comments. Null for root comments.']
+  content text [not null, note: 'Content of the comment']
+  user_id text [note: 'If the commenter is a logged-in user. Null for guests.']
+  commenter_name varchar(255) [note: 'Name of the guest commenter']
+  commenter_email varchar(255) [note: 'Email of the guest commenter']
+  status CommentStatus [not null, default: 'pending_approval', note: 'Moderation status of the comment']
+  created_at timestamp [default: `now()`, not null]
+}
+
+Enum CommentStatus {
+  pending_approval
+  approved
+  spam
+}
+
+Table email_history {
+  Note: '''
+  ### Email History Table
+  - **Purpose**: Logs all emails sent from the system.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Log table.
+  '''
+  id text [pk, note: 'Unique log ID (e.g., UUID)']
+  recipient_email varchar(255) [not null, note: 'Email address of the recipient']
+  subject varchar(255) [not null, note: 'Subject of the email']
+  body_html text [not null, note: 'Full HTML content of the email']
+  email_type EmailType [not null, note: 'Categorizes emails for easy statistics. E.g., Order Confirmation, Marketing...']
+  status EmailStatus [not null, default: 'queued', note: 'Status of the email sending process']
+  error_message text [note: 'Saves the error message if sending fails']
+  sent_at timestamp [note: 'Timestamp when the email was successfully sent']
+  opened_at timestamp [note: 'Timestamp when the user opened the email (updated via tracking pixel)']
+  created_at timestamp [default: `now()`, not null]
+}
+
+Enum EmailType {
+  ORDER_CONFIRMATION
+  SHIPPING_UPDATE
+  PASSWORD_RESET
+  MARKETING
+  OTHER_NOTIFICATION
+}
+
+Enum EmailStatus {
+  queued
+  sending
+  sent
+  failed
+}
+
+// == EXTENDED TABLE: CUSTOMER SUPPORT (TICKETING) ==
+Table support_tickets {
+  Note: '''
+  ### Support Tickets Table
+  - **Purpose**: Manages complaints and support requests from customers.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**. Operational data, requires real-time accuracy.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  code varchar(50) [unique, not null, note: 'Ticket code for customers and staff to track']
+  user_id text [not null]
+  order_id text [note: 'Which order this ticket is related to (if any)']
+  subject varchar(255) [not null]
+  content text [not null, note: 'Detailed description of the customers issue']
+  assignee_id text [note: 'Employee currently handling this ticket']
+  status TicketStatus [not null, default: 'new']
+  priority TicketPriority [not null, default: 'medium']
+  created_at timestamp [default: `now()`, not null]
+  closed_at timestamp [note: 'Timestamp when the ticket was closed']
+}
+
+Table ticket_replies {
+  Note: '''
+  ### Ticket Replies Table
+  - **Purpose**: Stores the entire conversation history within a ticket.
+
+  **Caching Strategy:**
+  - **DO NOT CACHE**.
+  '''
+  id text [pk, note: 'Unique reply ID (e.g., UUID)']
+  ticket_id text [not null]
+  replier_id text [not null, note: 'ID of the replier (can be a User or an Employee)']
+  replier_type ActorType [not null]
+  content text [not null]
+  created_at timestamp [default: `now()`, not null]
+}
+
+Enum TicketStatus {
+  new
+  in_progress
+  pending_reply
+  closed
+}
+
+Enum TicketPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+// =============================================
+// == RELATIONSHIP DEFINITIONS (FOREIGN KEYS)
+// =============================================
+
+// -- Group 1
+Ref: user_profiles.user_id > users.id [delete: cascade]
+Ref: user_profiles.membership_tier_id > membership_tiers.id [delete: set null]
+Ref: user_profiles.company_id > companies.id [delete: set null]
+Ref: user_addresses.user_id > users.id [delete: cascade]
+Ref: employees.store_id > stores.id [delete: set null]
+Ref: employee_roles.employee_id > employees.id [delete: cascade]
+Ref: employee_roles.role_id > roles.id [delete: cascade]
+Ref: role_permissions.role_id > roles.id [delete: cascade]
+Ref: role_permissions.permission_id > permissions.id [delete: cascade]
+Ref: loyalty_point_history.user_id > users.id [delete: cascade]
+Ref: loyalty_point_history.order_id > orders.id [delete: set null]
+Ref: customer_group_members.customer_group_id > customer_groups.id [delete: cascade]
+Ref: customer_group_members.user_id > users.id [delete: cascade]
+
+// -- Group 2
+Ref: product_variants.product_id > products.id [delete: cascade]
+Ref: attribute_values.attribute_id > attributes.id [delete: cascade]
+Ref: variant_attribute_values.variant_id > product_variants.id [delete: cascade]
+Ref: variant_attribute_values.attribute_value_id > attribute_values.id [delete: cascade]
+Ref: images.product_id > products.id [delete: cascade]
+Ref: images.variant_id > product_variants.id [delete: set null]
+Ref: product_tags.product_id > products.id [delete: cascade]
+Ref: product_tags.tag_id > tags.id [delete: cascade]
+Ref: product_reviews.order_id > orders.id [delete: cascade]
+Ref: product_reviews.product_id > products.id [delete: cascade]
+Ref: product_reviews.user_id > users.id [delete: cascade]
+
+// -- Group 3
+Ref: inventory.variant_id > product_variants.id [delete: cascade]
+Ref: inventory.store_id > stores.id [delete: cascade]
+Ref: goods_receipts.supplier_id > suppliers.id [delete: no action]
+Ref: goods_receipts.created_by_employee_id > employees.id [delete: no action]
+Ref: goods_receipts.store_id > stores.id [delete: no action]
+Ref: goods_receipt_items.goods_receipt_id > goods_receipts.id [delete: cascade]
+Ref: goods_receipt_items.variant_id > product_variants.id [delete: no action]
+
+// -- Group 4
+Ref: cart_items.user_id > users.id [delete: cascade]
+Ref: cart_items.variant_id > product_variants.id [delete: cascade]
+Ref: orders.user_id > users.id [delete: set null]
+Ref: orders.employee_id > employees.id [delete: set null]
+Ref: orders.store_id > stores.id [delete: set null]
+Ref: orders.voucher_id > vouchers.id [delete: set null]
+Ref: order_items.order_id > orders.id [delete: cascade]
+Ref: order_items.variant_id > product_variants.id [delete: set null]
+Ref: shipments.order_id > orders.id [delete: cascade]
+Ref: shipment_items.shipment_id > shipments.id [delete: cascade]
+Ref: shipment_items.order_item_id > order_items.id [delete: cascade]
+Ref: return_requests.original_order_id > orders.id [delete: no action]
+Ref: return_requests.processed_by_employee_id > employees.id [delete: no action]
+Ref: return_request_items.return_request_id > return_requests.id [delete: cascade]
+Ref: return_request_items.order_item_id > order_items.id [delete: no action]
+Ref: payment_transactions.order_id > orders.id [delete: cascade]
+Ref: refund_transactions.return_request_id > return_requests.id [delete: cascade]
+
+// -- Group 5
+Ref: orders.order_status_id > order_statuses.id
+Ref: orders.payment_method_id > payment_methods.id
+Ref: orders.payment_status_id > payment_statuses.id
+
+// -- Group 6
+Ref: wishlists.user_id > users.id [delete: cascade]
+Ref: wishlists.product_id > products.id [delete: cascade]
+Ref: product_view_history.user_id > users.id [delete: cascade]
+Ref: product_view_history.product_id > products.id [delete: cascade]
+Ref: daily_sales_reports.store_id > stores.id [delete: cascade]
+
+// -- Group 7
+Ref: posts.author_id > employees.id [delete: set null]
+Ref: post_comments.post_id > posts.id [delete: cascade]
+Ref: post_comments.parent_comment_id > post_comments.id [delete: cascade]
+Ref: post_comments.user_id > users.id [delete: cascade]
+Ref: support_tickets.user_id > users.id [delete: cascade]
+Ref: support_tickets.order_id > orders.id [delete: set null]
+Ref: support_tickets.assignee_id > employees.id [delete: set null]
+Ref: ticket_replies.ticket_id > support_tickets.id [delete: cascade]
