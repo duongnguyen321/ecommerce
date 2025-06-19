@@ -3,21 +3,27 @@
 import * as React from 'react';
 import { HeroUIProvider, ToastProvider } from '@heroui/react';
 import { useRouter } from 'next/navigation';
-import { ThemeProvider as NextThemesProvider } from 'next-themes';
-import { ThemeProviderProps } from 'next-themes/dist/types';
+import { ThemeProvider } from 'next-themes';
+import { ReactNode } from 'react';
 
-export interface ProvidersProps {
-  children: React.ReactNode;
-  themeProps?: ThemeProviderProps;
+interface ProvidersProps {
+  children: ReactNode;
 }
 
-export default function Providers({ children, themeProps }: ProvidersProps) {
+export default function Providers({ children }: ProvidersProps) {
   const router = useRouter();
 
   return (
-    <HeroUIProvider navigate={router.push}>
-      <ToastProvider />
-      <NextThemesProvider {...themeProps}>{children}</NextThemesProvider>
-    </HeroUIProvider>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+    >
+      <HeroUIProvider navigate={router.push}>
+        {children}
+        <ToastProvider />
+      </HeroUIProvider>
+    </ThemeProvider>
   );
 }

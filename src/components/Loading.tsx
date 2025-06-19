@@ -7,7 +7,7 @@ import Text from './Text';
  * @param description - the description to display in the alert
  */
 export default function Loading({
-  message = 'Đang xử lý...',
+  message = 'Loading...',
   description = message,
 }: {
   message?: string;

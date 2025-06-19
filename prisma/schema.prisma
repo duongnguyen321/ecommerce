@@ -41,7 +41,7 @@ model cart_items {
   variant_id       String
   quantity         Int              @default(1)
   created_at       DateTime         @default(now()) @db.Timestamp(6)
-  updated_at       DateTime         @default(now()) @db.Timestamp(6)
+  updated_at       DateTime         @default(now()) @updatedAt @db.Timestamp(6)
   users            users            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   product_variants product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -120,7 +120,7 @@ model employees {
   status          EmployeeStatus    @default(active)
   is_super_admin  Boolean           @default(false)
   created_at      DateTime          @default(now()) @db.Timestamp(6)
-  updated_at      DateTime          @default(now()) @db.Timestamp(6)
+  updated_at      DateTime          @default(now()) @updatedAt @db.Timestamp(6)
   employee_roles  employee_roles[]
   stores          stores?           @relation(fields: [store_id], references: [id], onUpdate: NoAction)
   goods_receipts  goods_receipts[]
@@ -239,7 +239,7 @@ model orders {
   payment_method_id         String
   payment_status_id         String
   created_at                DateTime                @default(now()) @db.Timestamp(6)
-  updated_at                DateTime                @default(now()) @db.Timestamp(6)
+  updated_at                DateTime                @default(now()) @updatedAt @db.Timestamp(6)
   loyalty_point_history     loyalty_point_history[]
   order_items               order_items[]
   employees                 employees?              @relation(fields: [employee_id], references: [id], onUpdate: NoAction)
@@ -314,7 +314,7 @@ model posts {
   status             PostStatus      @default(draft)
   published_at       DateTime?       @db.Timestamp(6)
   created_at         DateTime        @default(now()) @db.Timestamp(6)
-  updated_at         DateTime        @default(now()) @db.Timestamp(6)
+  updated_at         DateTime        @default(now()) @updatedAt @db.Timestamp(6)
   post_comments      post_comments[]
   employees          employees?      @relation(fields: [author_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
 }
@@ -352,7 +352,7 @@ model product_variants {
   status                   ProductStatus              @default(active)
   deleted_at               DateTime?                  @db.Timestamp(6)
   created_at               DateTime                   @default(now()) @db.Timestamp(6)
-  updated_at               DateTime                   @default(now()) @db.Timestamp(6)
+  updated_at               DateTime                   @default(now()) @updatedAt @db.Timestamp(6)
   cart_items               cart_items[]
   goods_receipt_items      goods_receipt_items[]
   images                   images[]
@@ -379,7 +379,7 @@ model products {
   status               ProductStatus          @default(active)
   deleted_at           DateTime?              @db.Timestamp(6)
   created_at           DateTime               @default(now()) @db.Timestamp(6)
-  updated_at           DateTime               @default(now()) @db.Timestamp(6)
+  updated_at           DateTime               @default(now()) @updatedAt @db.Timestamp(6)
   images               images[]
   product_reviews      product_reviews[]
   product_tags         product_tags[]
@@ -564,6 +564,8 @@ model user_profiles {
   companies          companies?        @relation(fields: [company_id], references: [id], onUpdate: NoAction)
   membership_tiers   membership_tiers? @relation(fields: [membership_tier_id], references: [id], onUpdate: NoAction)
   users              users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  created_at         DateTime          @default(now()) @db.Timestamp(6)
+  updated_at         DateTime          @default(now()) @updatedAt @db.Timestamp(6)
 }
 
 model users {
@@ -571,7 +573,7 @@ model users {
   email                  String                   @unique @db.VarChar(255)
   password_hash          String                   @db.VarChar(255)
   created_at             DateTime                 @default(now()) @db.Timestamp(6)
-  updated_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @default(now()) @updatedAt @db.Timestamp(6)
   deleted_at             DateTime?                @db.Timestamp(6)
   cart_items             cart_items[]
   customer_group_members customer_group_members[]
@@ -584,6 +586,15 @@ model users {
   user_addresses         user_addresses[]
   user_profiles          user_profiles?
   wishlists              wishlists[]
+  user_tokens            user_tokens[]
+}
+
+model user_tokens {
+  id         String   @id @default(uuid())
+  user_id    String   @unique
+  token      String   @unique
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 model variant_attribute_values {

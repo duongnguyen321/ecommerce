@@ -46,6 +46,21 @@ Table users {
   deleted_at timestamp [note: 'Soft-delete: Marks the deletion timestamp. NULL if not deleted. Helps preserve related data (invoices, etc.).']
 }
 
+Table user_tokens {
+  Note: '''
+  ### User Tokens Table
+  - **Purpose**: Stores user tokens for authentication.
+  - **Design**: 1-to-1 relationship with the `users` table.
+
+  **Caching Strategy:**
+  - **Strategy**: Cached along with the `users` object.
+  '''
+  id text [pk, note: 'Unique identifier (e.g., UUID)']
+  user_id text [unique, not null, note: 'Foreign key, 1-to-1 relationship with the users table']
+  token text [unique, not null, note: 'Token for the user']
+  created_at timestamp [default: `now()`, not null]
+}
+
 Table user_profiles {
   Note: '''
   ### User Profiles Table

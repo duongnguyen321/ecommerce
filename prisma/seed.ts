@@ -232,7 +232,7 @@ async function seedCompanies() {
       company_name: faker.company.name(),
       tax_code: faker.string.alphanumeric(10).toUpperCase(),
       billing_address: faker.location.streetAddress(true),
-      company_email: faker.internet.email(),
+      company_email: faker.internet.email().toLowerCase(),
       company_phone: faker.phone.number().slice(0, 20),
     });
   }
@@ -341,7 +341,7 @@ async function seedSuppliers() {
     supplierData.push({
       name: faker.company.name(),
       contact_person: faker.person.fullName(),
-      email: faker.internet.email(),
+      email: faker.internet.email().toLowerCase(),
       phone_number: faker.phone.number().slice(0, 20),
       address: faker.location.streetAddress(),
     });
@@ -486,7 +486,7 @@ async function seedEmployees(stores: stores[], roles: roles[]) {
   for (let i = 0; i < EMPLOYEES_TO_CREATE; i++) {
     employeeData.push({
       full_name: faker.person.fullName(),
-      email: faker.internet.email({ firstName: `employee${i}` }),
+      email: faker.internet.email({ firstName: `employee${i}` }).toLowerCase(),
       password_hash: passwordHash,
       phone_number: faker.phone.number().slice(0, 20),
       store_id: faker.helpers.arrayElement(stores).id,
@@ -561,11 +561,13 @@ async function seedUsers(companies: companies[]) {
     const firstName = faker.person.firstName();
     const lastName = faker.person.lastName();
     userData.push({
-      email: faker.internet.email({
-        firstName,
-        lastName,
-        provider: `example${i}.com`,
-      }),
+      email: faker.internet
+        .email({
+          firstName,
+          lastName,
+          provider: `example${i}.com`,
+        })
+        .toLowerCase(),
       password_hash: passwordHash,
       user_profiles: {
         create: {
@@ -1256,7 +1258,7 @@ async function seedEmailHistory() {
   const emailData = [];
   for (let i = 0; i < 100; i++) {
     emailData.push({
-      recipient_email: faker.internet.email(),
+      recipient_email: faker.internet.email().toLowerCase(),
       subject: faker.lorem.sentence(),
       body_html: `<p>${faker.lorem.paragraphs()}</p>`,
       email_type: faker.helpers.arrayElement<EmailType>([

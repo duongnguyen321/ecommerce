@@ -6,10 +6,13 @@ import { formatPhone } from './string';
  * @param {string} email - The string email to check.
  * @returns {boolean} - True if the string is a valid email.
  */
-export function validEmail(email: string = ''): boolean {
+export function validEmail(email: string | string[]): boolean {
   const patternEmail =
     /^(([^<>()\\[\]\\.,;:\s@"]+(\.[^<>()\\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-  return patternEmail.test(email);
+  if (typeof email === 'string') {
+    return patternEmail.test(email);
+  }
+  return email.every((e) => patternEmail.test(e));
 }
 
 export const isEmail = validEmail;
